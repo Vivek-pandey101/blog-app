@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API = axios.create({ baseURL: "http://localhost:8001/api" });
+const API = axios.create({ baseURL: "https://blog-app-1-gqul.onrender.com/api" });
 
 API.interceptors.request.use((req) => {
   const user = JSON.parse(localStorage.getItem("user"));
