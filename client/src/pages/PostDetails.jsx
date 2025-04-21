@@ -8,9 +8,7 @@ import {
   addComment,
   getComments,
 } from "../services/postAPI";
-import { useEffect, useState, useCallback } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Calendar,
   User,
@@ -35,6 +33,8 @@ const PostDetails = () => {
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState("");
   const [commentLoading, setCommentLoading] = useState(false);
+  const contentRef = useRef(null);
+
   const navigate = useNavigate();
   const { user } = useSelector((state) => state.auth);
 
@@ -45,6 +45,12 @@ const PostDetails = () => {
       setPost(res.data);
       setLikeCount(res.data.likes?.length || 0);
       setIsLiked(res.data.likes?.includes(user?._id));
+
+      // Set content directly from HTML string
+      if (contentRef.current && res.data.content) {
+        // For HTML content (from our custom editor)
+        contentRef.current.innerHTML = res.data.content;
+      }
     } catch (err) {
       setError("Could not load the post. Please try again later.");
       console.error("Error fetching post:", err);
@@ -98,13 +104,10 @@ const PostDetails = () => {
 
     try {
       await toggleLike(id, user.token);
-      // Optimistic UI update
       setIsLiked(!isLiked);
       setLikeCount((prev) => (isLiked ? prev - 1 : prev + 1));
-      // Then sync with server
       await fetchLikes();
     } catch (err) {
-      // Revert on error
       setIsLiked(!isLiked);
       setLikeCount((prev) => (isLiked ? prev + 1 : prev - 1));
       console.error("Failed to toggle like:", err);
@@ -136,12 +139,46 @@ const PostDetails = () => {
     return new Date(dateString).toLocaleDateString(undefined, options);
   };
 
+  // Calculate read time based on HTML content
   const calculateReadTime = (content) => {
     if (!content) return 1;
+
+    // Create a temporary element to strip HTML tags
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = content;
+    const plainText = tempDiv.textContent || tempDiv.innerText || "";
+
     const wordsPerMinute = 200;
-    const wordCount = content.split(/\s+/).length;
+    const wordCount = plainText.trim().split(/\s+/).length;
     return Math.max(1, Math.ceil(wordCount / wordsPerMinute));
   };
+
+  // Delete confirmation modal
+  const DeleteModal = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 max-w-md w-full">
+        <h3 className="text-xl font-bold mb-4">Delete Post</h3>
+        <p className="mb-6">
+          Are you sure you want to delete this post? This action cannot be
+          undone.
+        </p>
+        <div className="flex justify-end space-x-3">
+          <button
+            onClick={() => setShowDeleteModal(false)}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleDelete}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -176,210 +213,142 @@ const PostDetails = () => {
 
   return (
     <div className="min-h-screen bg-blue-50 py-8 px-4">
+      {showDeleteModal && <DeleteModal />}
+
       <div className="max-w-4xl mx-auto">
-        {/* Back button */}
         <div className="mb-4">
           <button
             onClick={() => navigate(-1)}
             className="text-blue-600 hover:text-blue-800 flex items-center transition-colors"
-            aria-label="Go back"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to all posts
           </button>
         </div>
 
-        {/* Error message */}
-        {error && (
-          <div className="mb-6 bg-red-50 text-red-800 p-4 rounded-lg flex items-center">
-            <AlertCircle className="w-5 h-5 mr-2" />
-            <span>{error}</span>
-          </div>
-        )}
+        {/* Post Title */}
+        <h1 className="text-3xl font-bold mb-4">{post.title}</h1>
 
-        {/* Post card */}
-        <article className="bg-white rounded-xl shadow-lg mb-6 overflow-hidden">
-          <div className="p-8 border-b">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">
-              {post.title}
-            </h1>
-            <div className="flex flex-wrap gap-4 text-sm text-gray-600">
-              <div className="flex items-center">
-                <User className="w-4 h-4 mr-2 text-blue-500" />
-                {post.author?.username || "Anonymous"}
-              </div>
-              <div className="flex items-center">
-                <Calendar className="w-4 h-4 mr-2 text-blue-500" />
-                {formatDate(post.createdAt)}
-              </div>
-              <div className="flex items-center">
-                <MessageSquare className="w-4 h-4 mr-2 text-blue-500" />
-                {readTime} min read
-              </div>
-            </div>
+        {/* Author and Meta */}
+        <div className="flex items-center text-sm text-gray-500 mb-4 space-x-4">
+          <span className="flex items-center">
+            <User className="w-4 h-4 mr-1" />
+            {post.author?.username}
+          </span>
+          <span className="flex items-center">
+            <Calendar className="w-4 h-4 mr-1" />
+            {formatDate(post.createdAt)}
+          </span>
+          <span>{readTime} min read</span>
+        </div>
+
+        {/* Post Actions */}
+        <div className="flex items-center space-x-4 mb-6">
+          <button
+            onClick={handleLike}
+            className={`flex items-center space-x-1 text-sm ${
+              isLiked ? "text-blue-600" : "text-gray-500"
+            }`}
+          >
+            <ThumbsUp className="w-4 h-4" />
+            <span>{likeCount}</span>
+          </button>
+
+          <div className="flex items-center space-x-1 text-sm text-gray-500">
+            <MessageSquare className="w-4 h-4" />
+            <span>{comments.length}</span>
           </div>
+
+          <button className="text-gray-500 hover:text-blue-600">
+            <Share2 className="w-4 h-4" />
+          </button>
+
+          <button className="text-gray-500 hover:text-blue-600">
+            <Bookmark className="w-4 h-4" />
+          </button>
 
           {isAuthor && (
-            <div className="px-8 py-4 bg-gray-50 border-b">
-              <div className="flex gap-3">
-                <button
-                  onClick={() => navigate(`/edit/${id}`)}
-                  className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg hover:bg-blue-200 transition-colors flex items-center"
-                  aria-label="Edit post"
-                >
-                  <Edit3 className="w-4 h-4 mr-2" /> Edit
-                </button>
-                <button
-                  onClick={() => setShowDeleteModal(true)}
-                  className="bg-red-100 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 transition-colors flex items-center"
-                  aria-label="Delete post"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" /> Delete
-                </button>
-              </div>
+            <div className="ml-auto flex items-center space-x-2">
+              <button
+                onClick={() => navigate(`/edit/${id}`)}
+                className="text-blue-600 hover:text-blue-800"
+              >
+                <Edit3 className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="text-red-500 hover:text-red-700"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Post Content (Custom rendered) */}
+        <div className="bg-white shadow p-6 rounded-lg prose max-w-none">
+          <div ref={contentRef} className="content-display" />
+        </div>
+
+        {/* Comments Section */}
+        <div className="mt-10 bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold mb-4">Comments</h3>
+
+          {error && (
+            <div className="mb-4 flex items-center p-3 bg-red-50 text-red-700 rounded">
+              <AlertCircle className="w-4 h-4 mr-2" />
+              <p className="text-sm">{error}</p>
             </div>
           )}
 
-          <div className="p-8">
-            <div className="prose prose-blue max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {post.content}
-              </ReactMarkdown>
-            </div>
-          </div>
-
-          {/* Likes & buttons */}
-          <div className="px-8 py-4 bg-gray-50 flex justify-between items-center">
-            <div className="flex gap-4">
-              <button
-                onClick={handleLike}
-                className={`flex items-center gap-1 px-3 py-1 rounded-full transition-colors ${
-                  isLiked
-                    ? "bg-blue-100 text-blue-700"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-                aria-label={isLiked ? "Unlike post" : "Like post"}
-              >
-                <ThumbsUp
-                  className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`}
-                />
-                {likeCount}
-              </button>
-              <button
-                className="flex items-center gap-1 px-3 py-1 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-                aria-label="Comment on post"
-              >
-                <MessageSquare className="h-4 w-4" />
-                {comments.length}{" "}
-                {comments.length === 1 ? "Comment" : "Comments"}
-              </button>
-            </div>
-            <div className="flex gap-2">
-              <button
-                className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
-                aria-label="Share post"
-              >
-                <Share2 className="h-4 w-4" />
-              </button>
-              <button
-                className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
-                aria-label="Bookmark post"
-              >
-                <Bookmark className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </article>
-
-        {/* Comments section */}
-        <section className="bg-white rounded-xl shadow-lg mb-6">
-          <div className="p-6 border-b">
-            <h2 className="text-xl font-semibold">
-              Comments ({comments.length})
-            </h2>
-          </div>
-          <div className="p-6">
+          {user ? (
             <div className="mb-6">
               <textarea
+                rows="3"
+                className="w-full border border-gray-300 p-3 rounded mb-2"
+                placeholder="Write a comment..."
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
-                placeholder="Write a comment..."
-                rows="3"
-                className="w-full border p-3 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                aria-label="Comment input"
               />
-              <div className="flex justify-end mt-2">
-                <button
-                  onClick={handleCommentPost}
-                  disabled={commentLoading || !commentText.trim()}
-                  className={`bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors ${
-                    commentLoading ? "opacity-70 cursor-not-allowed" : ""
-                  }`}
-                >
-                  {commentLoading ? "Posting..." : "Post Comment"}
-                </button>
-              </div>
+              <button
+                onClick={handleCommentPost}
+                disabled={commentLoading}
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors disabled:opacity-70"
+              >
+                {commentLoading ? "Posting..." : "Post Comment"}
+              </button>
             </div>
+          ) : (
+            <p className="text-gray-600 mb-4">Login to post a comment.</p>
+          )}
 
-            <div className="mt-6 space-y-4">
-              {comments.length === 0 ? (
-                <p className="text-center text-gray-500 py-4">
-                  Be the first to comment!
-                </p>
-              ) : (
-                comments.map((comment) => (
-                  <article
-                    key={comment._id}
-                    className="border-t pt-4 text-sm text-gray-800"
-                  >
-                    <header className="flex items-center gap-2 mb-1">
-                      <span className="font-medium">
-                        {comment.author?.username || "Anonymous"}
-                      </span>
-                      <span className="text-gray-400 text-xs">
-                        {formatDate(comment.createdAt)}
-                      </span>
-                    </header>
-                    <p className="whitespace-pre-line">{comment.content}</p>
-                  </article>
-                ))
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* Delete modal */}
-        {showDeleteModal && (
-          <div
-            className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50"
-            onClick={() => setShowDeleteModal(false)}
-          >
-            <div
-              className="bg-white p-6 rounded-xl shadow-xl w-full max-w-sm"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-lg font-bold mb-3">Delete Post</h3>
-              <p className="text-gray-600 mb-5">
-                Are you sure you want to delete this post? This action cannot be
-                undone.
-              </p>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => setShowDeleteModal(false)}
-                  className="border px-4 py-2 rounded hover:bg-gray-100 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDelete}
-                  className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+          {comments.length === 0 ? (
+            <p className="text-gray-500 italic">
+              No comments yet. Be the first to comment!
+            </p>
+          ) : (
+            <ul className="space-y-4">
+              {comments.map((comment) => (
+                <li key={comment._id} className="border-b pb-4">
+                  <div className="flex items-center mb-1">
+                    <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center mr-2">
+                      <User className="h-4 w-4 text-blue-600" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium">
+                        {comment.username || "Anonymous"}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(comment.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="pl-10 text-gray-700">{comment.text}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </div>
   );

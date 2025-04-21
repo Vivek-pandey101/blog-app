@@ -1,14 +1,24 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getPostById, updatePost } from "../services/postAPI";
 import { useSelector } from "react-redux";
 import {
   AlertCircle,
   Save,
-  FileText,
-  Type,
   ArrowLeft,
   CheckCircle,
+  Bold,
+  Italic,
+  Underline,
+  List,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Link,
+  Image,
+  Code,
+  Heading1,
+  Heading2,
 } from "lucide-react";
 
 const EditPost = () => {
@@ -16,20 +26,127 @@ const EditPost = () => {
   const navigate = useNavigate();
   const { user } = useSelector((state) => state.auth);
 
-  const [formData, setFormData] = useState({
-    title: "",
-    content: "",
-  });
-  const [originalData, setOriginalData] = useState({
-    title: "",
-    content: "",
-  });
+  const [title, setTitle] = useState("");
+  const [originalTitle, setOriginalTitle] = useState("");
+  const [originalContent, setOriginalContent] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [previewMode, setPreviewMode] = useState(false);
   const [animate, setAnimate] = useState(false);
+
+  // Refs for the editor
+  const editorRef = useRef(null);
+  const isMounted = useRef(false);
+
+  // Track selection state
+  const [selection, setSelection] = useState({
+    range: null,
+    savedRange: null,
+  });
+
+  useEffect(() => {
+    isMounted.current = true;
+
+    // Add event listener to save selection when the editor loses focus
+    const handleSelectionChange = () => {
+      if (document.activeElement === editorRef.current) {
+        saveSelection();
+      }
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+
+    return () => {
+      isMounted.current = false;
+      document.removeEventListener("selectionchange", handleSelectionChange);
+    };
+  }, []);
+
+  // Save current selection
+  const saveSelection = () => {
+    if (window.getSelection) {
+      const sel = window.getSelection();
+      if (sel.getRangeAt && sel.rangeCount) {
+        const range = sel.getRangeAt(0);
+        setSelection((prev) => ({ ...prev, savedRange: range }));
+      }
+    }
+  };
+
+  // Restore saved selection
+  const restoreSelection = () => {
+    if (selection.savedRange) {
+      if (window.getSelection) {
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(selection.savedRange);
+      }
+    }
+  };
+
+  // Focus the editor and restore selection
+  const focusEditor = () => {
+    editorRef.current.focus();
+    restoreSelection();
+  };
+
+  // Execute command
+  const execCommand = (command, value = null) => {
+    focusEditor();
+    document.execCommand(command, false, value);
+    editorRef.current.focus();
+  };
+
+  // Common formatting functions
+  const commands = {
+    bold: () => execCommand("bold"),
+    italic: () => execCommand("italic"),
+    underline: () => execCommand("underline"),
+    insertUnorderedList: () => execCommand("insertUnorderedList"),
+    insertOrderedList: () => execCommand("insertOrderedList"),
+    alignLeft: () => execCommand("justifyLeft"),
+    alignCenter: () => execCommand("justifyCenter"),
+    alignRight: () => execCommand("justifyRight"),
+    heading1: () => execCommand("formatBlock", "<h1>"),
+    heading2: () => execCommand("formatBlock", "<h2>"),
+    paragraph: () => execCommand("formatBlock", "<p>"),
+    code: () => {
+      saveSelection();
+      const selectedText = window.getSelection().toString();
+      execCommand(
+        "insertHTML",
+        `<code class="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">${
+          selectedText || "code"
+        }</code>`
+      );
+    },
+  };
+
+  // Insert link
+  const insertLink = () => {
+    saveSelection();
+    const url = prompt("Enter URL:");
+    if (url) {
+      restoreSelection();
+      execCommand("createLink", url);
+    }
+  };
+
+  // Insert image
+  const insertImage = () => {
+    saveSelection();
+    const url = prompt("Enter image URL:");
+    if (url) {
+      restoreSelection();
+      execCommand("insertImage", url);
+    }
+  };
+
+  // Get HTML content
+  const getContent = () => {
+    return editorRef.current ? editorRef.current.innerHTML : "";
+  };
 
   useEffect(() => {
     const fetchPost = async () => {
@@ -39,12 +156,14 @@ const EditPost = () => {
         if (!user || res.data.author._id !== user._id) {
           setError("You are not authorized to edit this post.");
         } else {
-          const postData = {
-            title: res.data.title,
-            content: res.data.content,
-          };
-          setFormData(postData);
-          setOriginalData(postData);
+          setTitle(res.data.title);
+          setOriginalTitle(res.data.title);
+          setOriginalContent(res.data.content);
+
+          // Set HTML content directly in the editor
+          if (editorRef.current && res.data.content) {
+            editorRef.current.innerHTML = res.data.content;
+          }
         }
       } catch (err) {
         setError("Failed to load post data.");
@@ -53,15 +172,10 @@ const EditPost = () => {
       }
     };
 
-    fetchPost();
+    if (isMounted.current) {
+      fetchPost();
+    }
   }, [id, user]);
-
-  const handleChange = (e) => {
-    setFormData((prev) => ({
-      ...prev,
-      [e.target.name]: e.target.value,
-    }));
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -69,9 +183,11 @@ const EditPost = () => {
     setSaving(true);
 
     try {
-      await updatePost(id, formData, user.token);
+      const content = getContent();
+      await updatePost(id, { title, content }, user.token);
       setSuccess("Post updated successfully!");
-      setOriginalData(formData);
+      setOriginalTitle(title);
+      setOriginalContent(content);
       setTimeout(() => {
         navigate(`/posts/${id}`);
       }, 1500);
@@ -82,7 +198,6 @@ const EditPost = () => {
   };
 
   useEffect(() => {
-    // Animation delay
     const timeout = setTimeout(() => {
       setAnimate(false);
     }, 500);
@@ -90,37 +205,10 @@ const EditPost = () => {
     return () => clearTimeout(timeout);
   }, [animate]);
 
-  // Detect if there are unsaved changes
-  const hasChanges =
-    originalData.title !== formData.title ||
-    originalData.content !== formData.content;
-
-  // Simple markdown preview renderer
-  const renderMarkdown = (text) => {
-    if (!text)
-      return <p className="text-gray-400 italic">No content to preview</p>;
-
-    // This is a very simplified markdown renderer
-    // For a real app, you'd want to use a library like marked or react-markdown
-    const headers = text.replace(
-      /# (.*?)$/gm,
-      '<h1 class="text-2xl font-bold my-4">$1</h1>'
-    );
-    const subheaders = headers.replace(
-      /## (.*?)$/gm,
-      '<h2 class="text-xl font-bold my-3">$1</h2>'
-    );
-    const paragraphs = subheaders.replace(
-      /(?<!\n)\n(?!\n)(.*?)$/gm,
-      '<p class="my-2">$1</p>'
-    );
-    const boldText = paragraphs.replace(
-      /\*\*(.*?)\*\*/g,
-      "<strong>$1</strong>"
-    );
-    const italicText = boldText.replace(/\*(.*?)\*/g, "<em>$1</em>");
-
-    return <div dangerouslySetInnerHTML={{ __html: italicText }} />;
+  // Check for unsaved changes
+  const hasChanges = () => {
+    const currentContent = getContent();
+    return originalTitle !== title || originalContent !== currentContent;
   };
 
   return (
@@ -158,71 +246,161 @@ const EditPost = () => {
             ) : (
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="relative">
-                  <Type className="absolute left-3 top-3 text-gray-400 h-5 w-5" />
                   <input
                     type="text"
-                    name="title"
-                    value={formData.title}
-                    onChange={handleChange}
-                    className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300 text-lg font-medium"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300 text-lg font-medium"
                     placeholder="Post Title"
                     required
                   />
                 </div>
 
                 <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  <div className="flex items-center border-b bg-gray-50 px-4 py-2">
-                    <div className="flex space-x-2">
-                      <button
-                        type="button"
-                        className={`px-3 py-1 rounded text-sm font-medium ${
-                          !previewMode
-                            ? "bg-purple-100 text-purple-800"
-                            : "text-gray-700 hover:bg-gray-200"
-                        }`}
-                        onClick={() => setPreviewMode(false)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className={`px-3 py-1 rounded text-sm font-medium ${
-                          previewMode
-                            ? "bg-purple-100 text-purple-800"
-                            : "text-gray-700 hover:bg-gray-200"
-                        }`}
-                        onClick={() => setPreviewMode(true)}
-                      >
-                        Preview
-                      </button>
-                    </div>
-                    <div className="ml-auto flex items-center text-xs text-gray-500">
-                      <FileText className="h-4 w-4 mr-1" />
-                      Markdown supported
-                    </div>
+                  {/* Toolbar */}
+                  <div className="bg-gray-50 border-b border-gray-300 p-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={commands.heading1}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Heading 1"
+                    >
+                      <Heading1 className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={commands.heading2}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Heading 2"
+                    >
+                      <Heading2 className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={commands.paragraph}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Paragraph"
+                    >
+                      <span className="font-bold text-sm">P</span>
+                    </button>
+                    <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                    <button
+                      type="button"
+                      onClick={commands.bold}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Bold"
+                    >
+                      <Bold className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={commands.italic}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Italic"
+                    >
+                      <Italic className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={commands.underline}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Underline"
+                    >
+                      <Underline className="h-4 w-4" />
+                    </button>
+                    <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                    <button
+                      type="button"
+                      onClick={commands.insertUnorderedList}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Bullet List"
+                    >
+                      <List className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={commands.insertOrderedList}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Numbered List"
+                    >
+                      <span className="font-bold text-sm">1.</span>
+                    </button>
+                    <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                    <button
+                      type="button"
+                      onClick={commands.alignLeft}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Align Left"
+                    >
+                      <AlignLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={commands.alignCenter}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Align Center"
+                    >
+                      <AlignCenter className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={commands.alignRight}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Align Right"
+                    >
+                      <AlignRight className="h-4 w-4" />
+                    </button>
+                    <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                    <button
+                      type="button"
+                      onClick={insertLink}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Insert Link"
+                    >
+                      <Link className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={insertImage}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Insert Image"
+                    >
+                      <Image className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={commands.code}
+                      className="p-1.5 hover:bg-gray-200 rounded"
+                      title="Code"
+                    >
+                      <Code className="h-4 w-4" />
+                    </button>
                   </div>
 
-                  {!previewMode ? (
-                    <textarea
-                      name="content"
-                      value={formData.content}
-                      onChange={handleChange}
-                      rows="12"
-                      className="w-full p-4 font-mono text-gray-800 focus:outline-none"
-                      placeholder="Write in Markdown..."
-                      required
-                    />
-                  ) : (
-                    <div className="w-full p-4 min-h-64 prose max-w-none">
-                      {renderMarkdown(formData.content)}
-                    </div>
-                  )}
+                  {/* Editor Content */}
+                  <div
+                    ref={editorRef}
+                    className="p-4 min-h-32 max-h-96 overflow-y-auto"
+                    contentEditable
+                    onBlur={saveSelection}
+                    onFocus={restoreSelection}
+                    onKeyDown={(e) => {
+                      if (e.key === "Tab") {
+                        e.preventDefault();
+                        execCommand("insertHTML", "&nbsp;&nbsp;&nbsp;&nbsp;");
+                      }
+                    }}
+                    style={{
+                      outline: "none",
+                      lineHeight: "1.5",
+                    }}
+                  />
                 </div>
 
                 <div className="flex items-center justify-between">
                   <div className="text-sm text-gray-500">
-                    <span className="font-medium">Tips:</span> Use # for
-                    headings, ** for bold **, * for italic *
+                    <span className="font-medium">Tips:</span> Use the toolbar
+                    to format your content
                   </div>
 
                   <div className="flex space-x-3">
@@ -235,11 +413,11 @@ const EditPost = () => {
                     </button>
                     <button
                       type="submit"
-                      disabled={saving || !hasChanges}
+                      disabled={saving || !hasChanges()}
                       className={`flex items-center justify-center px-6 py-2 rounded-lg font-medium transition-all duration-300 ${
                         saving
                           ? "bg-green-500 text-white cursor-not-allowed"
-                          : !hasChanges
+                          : !hasChanges()
                           ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                           : "bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700 hover:shadow-lg transform hover:-translate-y-1"
                       }`}

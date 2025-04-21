@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getPosts } from "../services/postAPI";
 import { Link } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   Book,
   Clock,
@@ -13,6 +11,16 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { useSelector } from "react-redux";
+
+// Helper function to extract text from HTML content
+const extractTextFromHtml = (html) => {
+  if (!html) return "";
+  // Create a temporary div to parse the HTML
+  const tempDiv = document.createElement("div");
+  tempDiv.innerHTML = html;
+  // Get the text content
+  return tempDiv.textContent || tempDiv.innerText || "";
+};
 
 const AllPosts = () => {
   const [posts, setPosts] = useState([]);
@@ -28,9 +36,9 @@ const AllPosts = () => {
       try {
         const res = await getPosts();
         setPosts(res.data);
-        setLoading(false);
       } catch (err) {
         setError("Failed to load posts");
+      } finally {
         setLoading(false);
       }
     };
@@ -40,17 +48,21 @@ const AllPosts = () => {
 
   // Filter posts based on search term and category
   const filteredPosts = posts.filter((post) => {
+    const plainText = extractTextFromHtml(post.content || "");
+
     const matchesSearch =
       post.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      post.content.toLowerCase().includes(searchTerm.toLowerCase());
+      plainText.toLowerCase().includes(searchTerm.toLowerCase());
+
     const matchesCategory =
       selectedCategory === "all" || post.category === selectedCategory;
+
     return matchesSearch && matchesCategory;
   });
 
   // Function to generate a random pastel color based on author's username
   const getAuthorColor = (username) => {
-    if (!username) return "bg-gray-200";
+    if (!username) return "bg-gray-200 text-gray-800";
     const colors = [
       "bg-red-100 text-red-800",
       "bg-blue-100 text-blue-800",
@@ -62,6 +74,19 @@ const AllPosts = () => {
     ];
     const index = username.charCodeAt(0) % colors.length;
     return colors[index];
+  };
+
+  // Generate preview text from HTML content
+  const getPreviewText = (htmlContent, maxLength = 100) => {
+    try {
+      const plainText = extractTextFromHtml(htmlContent);
+      return (
+        plainText.substring(0, maxLength) +
+        (plainText.length > maxLength ? "..." : "")
+      );
+    } catch (e) {
+      return "Could not load preview.";
+    }
   };
 
   return (
@@ -96,7 +121,7 @@ const AllPosts = () => {
           </div>
 
           <div className="p-6">
-            {/* Search and filter */}
+            {/* Search bar */}
             <div className="flex flex-col md:flex-row gap-4 mb-8">
               <div className="relative flex-grow">
                 <Search className="absolute left-3 top-3 text-gray-400 h-5 w-5" />
@@ -108,9 +133,11 @@ const AllPosts = () => {
                   className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300"
                 />
               </div>
+
+              {/* We could add category selector here */}
             </div>
 
-            {/* Post list */}
+            {/* Error / Loading / Posts */}
             {error && (
               <div className="bg-red-50 text-red-800 p-4 rounded-lg mb-6">
                 {error}
@@ -132,11 +159,13 @@ const AllPosts = () => {
                     ? "Try a different search term or category"
                     : "Be the first to create a post!"}
                 </p>
-                <Link to="/create">
-                  <button className="mt-4 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all">
-                    Create New Post
-                  </button>
-                </Link>
+                {user && (
+                  <Link to="/create">
+                    <button className="mt-4 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all">
+                      Create New Post
+                    </button>
+                  </Link>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -150,7 +179,6 @@ const AllPosts = () => {
                       className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 h-full flex flex-col transform group-hover:-translate-y-1"
                       style={{ animationDelay: `${index * 0.05}s` }}
                     >
-                      {/* Post image placeholder */}
                       <div className="h-40 bg-gradient-to-r from-blue-100 to-indigo-100 relative overflow-hidden">
                         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/20"></div>
                         <div className="absolute top-3 right-3">
@@ -179,12 +207,11 @@ const AllPosts = () => {
                         <h3 className="text-lg font-bold text-gray-800 mb-2 line-clamp-2 group-hover:text-indigo-600 transition-all">
                           {post.title}
                         </h3>
-                        <div className="prose prose-sm max-w-none text-gray-600 line-clamp-3 mb-4">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {post.content.substring(0, 50) +
-                              (post.content.length > 50 ? "..." : "")}
-                          </ReactMarkdown>
-                        </div>
+
+                        <p className="text-gray-600 text-sm mb-4 line-clamp-3">
+                          {getPreviewText(post.content)}
+                        </p>
+
                         <div className="mt-auto flex items-center text-indigo-600 text-sm font-medium">
                           Read more
                           <ArrowRight className="h-4 w-4 ml-1 transition-transform group-hover:translate-x-1" />
