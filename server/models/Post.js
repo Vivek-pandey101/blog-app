@@ -7,13 +7,16 @@ const postSchema = new mongoose.Schema(
       required: true,
     },
     content: {
-      type: String, // Markdown text
+      type: String, // DraftJS or Markdown
       required: true,
     },
     author: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+    },
+    image: {
+      type: String, // Single Google Drive image URL
     },
   },
   { timestamps: true }

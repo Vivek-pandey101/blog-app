@@ -10,7 +10,13 @@ API.interceptors.request.use((req) => {
   return req;
 });
 
-export const createPost = (postData) => API.post("/posts", postData);
+export const createPost = (postData) => {
+  const isFormData = postData instanceof FormData;
+
+  return API.post("/posts", postData, {
+    headers: isFormData ? { "Content-Type": "multipart/form-data" } : undefined,
+  });
+};
 export const getPosts = () => API.get("/getposts");
 export const getPostById = (id) => API.get(`/getpost/${id}`);
 export const deletePost = (id, token) =>

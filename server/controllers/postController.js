@@ -1,23 +1,38 @@
+const { uploadToDrive } = require("../gdrive");
 const Post = require("../models/Post");
 
 const createPost = async (req, res) => {
-  const { title, content } = req.body;
+  console.log(req.body); // Check if the form data is received
+  console.log(req.file); // Check if the image file is uploaded
+
+  const { title, content } = req.body; // Ensure body contains title and content
 
   if (!title || !content)
     return res.status(400).json({ message: "All fields are required" });
 
   try {
+    let image = null;
+
+    if (req.file) {
+      const uploaded = await uploadToDrive(req.file);
+      image = { id: uploaded.id, url: uploaded.url, name: uploaded.name };
+    }
+    
+
     const newPost = await Post.create({
       title,
       content,
+      image,
       author: req.user._id,
     });
 
     res.status(201).json(newPost);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Failed to create post" });
   }
 };
+
 
 const getAllPosts = async (req, res) => {
   try {

@@ -25,6 +25,7 @@ const CreatePost = () => {
   const [message, setMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [animate, setAnimate] = useState(false);
+  const [imageFile, setImageFile] = useState(null);
   const editorRef = useRef(null);
   const isMounted = useRef(false);
 
@@ -129,30 +130,21 @@ const CreatePost = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!isMounted.current) return;
-
     setIsSaving(true);
     setAnimate(true);
 
+    const content = getContent();
+    const formData = new FormData();
+    formData.append("title", title);
+    formData.append("content", content);
+    if (imageFile) formData.append("image", imageFile);
     try {
-      const content = getContent();
-      
-      // Call the createPost API function
-      await createPost({ title, content });
-
-      if (isMounted.current) {
-        navigate("/");
-      }
+      await createPost(formData); // Ensure your `createPost` API supports FormData
+      navigate("/");
     } catch (err) {
-      if (isMounted.current) {
-        setMessage(
-          err.response?.data?.message || 
-          err.message || 
-          "Failed to create post"
-        );
-        setIsSaving(false);
-        setAnimate(false);
-      }
+      setMessage(err.message || "Failed to create post");
+      setIsSaving(false);
+      setAnimate(false);
     }
   };
 
@@ -210,6 +202,13 @@ const CreatePost = () => {
                   required
                 />
               </div>
+
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setImageFile(e.target.files[0])}
+                className="block w-full mt-4"
+              />
 
               <div className="border border-gray-300 rounded-lg overflow-hidden">
                 <div className="bg-gray-50 border-b border-gray-300 p-2 flex flex-wrap gap-2">
